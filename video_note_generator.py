@@ -31,8 +31,7 @@ required_env_vars = {
     'OPENROUTER_APP_NAME': '用于OpenRouter API',
     'OPENROUTER_HTTP_REFERER': '用于OpenRouter API',
     'UNSPLASH_ACCESS_KEY': '用于图片搜索',
-    'UNSPLASH_SECRET_KEY': '用于Unsplash认证',
-    'UNSPLASH_REDIRECT_URI': '用于Unsplash回调'
+    'UNSPLASH_SECRET_KEY': '用于Unsplash认证'
 }
 
 missing_env_vars = []
