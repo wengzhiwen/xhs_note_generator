@@ -81,8 +81,21 @@ AI_MODEL = "google/gemini-pro"  # 使用 Gemini Pro 模型
 if openrouter_api_key:
     try:
         print(f"正在测试 OpenRouter API 连接...")
-        response = client.models.list()  # 使用更简单的API调用来测试连接
-        print("✅ OpenRouter API 连接测试成功")
+        
+        # 测试API连接
+        response = client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[
+                {"role": "system", "content": "这是一个链接测试的一部分，你只需要正常表现让我们知道你很好就可以了"},
+                {"role": "user", "content": "请问你是谁"}
+            ],
+            temperature=0.3,
+            max_tokens=50
+        )
+        if not response.choices:
+            raise Exception("API 连接测试失败")
+
+        print(f"✅ OpenRouter API 连接测试成功")
         openrouter_available = True
     except Exception as e:
         print(f"⚠️ OpenRouter API 连接测试失败: {str(e)}")
@@ -671,6 +684,7 @@ Markdown格式要求：
 """
 
             # 调用API
+            print(f"开始调用{AI_MODEL}...")
             response = client.chat.completions.create(
                 model=AI_MODEL,
                 messages=[
@@ -824,7 +838,7 @@ Markdown格式要求：
             print(f"⚠️ 获取图片失败: {str(e)}")
             return []
 
-    def process_video(self, url: str) -> List[str]:
+    def process_video(self, url: str, title:str = None, content:str = None) -> List[str]:
         """处理视频链接，生成笔记
         
         Args:
@@ -840,13 +854,75 @@ Markdown格式要求：
         os.makedirs(temp_dir, exist_ok=True)
         
         try:
-            # 下载视频
-            print("⬇️ 正在下载视频...")
-            result = self._download_video(url, temp_dir)
-            if not result:
-                return []
+            if title is not None and content is not None:
+                # 说明是本地视频文件不需要下载
+                # url就是视频文件路径
+                video_path = url
+                if not os.path.exists(video_path):
+                    raise Exception("视频文件不存在")
+                # 将视频文件直接复制到临时目录
+                shutil.copy(video_path, temp_dir)
+                # 更新video_path为临时目录中的视频文件
+                video_path = os.path.join(temp_dir, os.path.basename(video_path))
                 
-            audio_path, video_info = result
+                # 准备在临时目录中以视频文件名为基础创建音频文件
+                audio_path = os.path.join(temp_dir, os.path.basename(video_path) + '.mp3')
+                
+                # 使用ffmpeg_path中的ffmpeg提取音频，也放到临时目录
+                try:
+                    command = [
+                        self.ffmpeg_path,
+                        '-i', video_path,           # 输入文件
+                        '-vn',                      # 禁用视频
+                        '-acodec', 'libmp3lame',    # 音频编码器
+                        '-q:a', '2',                # 音质设置 (0-9, 2=高质量)
+                        audio_path                    # 输出文件
+                    ]
+                    subprocess.run(command, check=True)
+                    print(f"Audio extracted to: {temp_dir}")
+                except subprocess.CalledProcessError as e:
+                    print(f"Error extracting audio: {e}")
+                     
+                # 获取视频的长度
+                duration = 0.0
+                
+                ffprobe_path = 'ffprobe'
+                # 将ffmepg_path中的ffmpge路径替换为ffprobe
+                if self.ffmpeg_path:
+                    ffprobe_path = self.ffmpeg_path.replace('ffmpeg', 'ffprobe')
+                
+                try:
+                    command = [
+                        ffprobe_path,
+                        '-v', 'quiet',
+                        '-print_format', 'json',
+                        '-show_format',
+                        '-show_streams',
+                        video_path
+                    ]
+                    output = subprocess.check_output(command)
+                    data = json.loads(output)
+                    duration = float(data['format']['duration'])
+                except Exception as e:
+                    print(f"Error getting duration, continue: {e}")
+                    return 0.0
+                
+                video_info = {
+                    'title': title,
+                    'uploader': '未知作者',
+                    'description': content,
+                    'duration': duration,
+                    'platform': 'local'
+                }
+            else:
+                # 下载视频
+                print("⬇️ 正在下载视频...")
+                result = self._download_video(url, temp_dir)
+                if not result:
+                    return []
+                    
+                audio_path, video_info = result
+                
             if not audio_path or not video_info:
                 return []
                 
@@ -946,6 +1022,40 @@ Markdown格式要求：
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
 
+    def process_json_file(self, input_file: str) -> None:
+        """处理JSON文件，生成优化后的笔记
+        
+        Args:
+            input_file (str): 输入的JSON文件路径
+        """
+        try:
+            # 读取并解析JSON文件
+            with open(input_file, 'r', encoding='utf-8') as f:
+                video_list = json.load(f)
+                
+            # 验证JSON结构
+            if not isinstance(video_list, list):
+                raise ValueError("JSON文件必须包含一个视频信息列表")
+                
+            # 验证每个视频信息的结构
+            for video in video_list:
+                if not all(key in video for key in ['video_path', 'title', 'content']):
+                    raise ValueError("每个视频信息必须包含 'video_path', 'title', 'content' 字段")
+            
+            print(f"✅ 成功读取 {len(video_list)} 个视频信息")
+        
+            # 处理每个视频链接
+            for i, video in enumerate(video_list, 1):
+                print(f"处理第 {i}/{len(video_list)} 个视频: {video['video_path']}\n")
+                self.process_video(video['video_path'], video['title'], video['content'])
+            
+        except json.JSONDecodeError as e:
+            print(f"⚠️ JSON解析错误: {str(e)}")
+            raise
+        except Exception as e:
+            print(f"⚠️ 处理JSON文件时出错: {str(e)}")
+            raise
+
     def process_markdown_file(self, input_file: str) -> None:
         """处理markdown文件，生成优化后的笔记
         
@@ -1044,6 +1154,9 @@ if __name__ == '__main__':
         if args.input.endswith('.md'):
             print(f"📝 处理Markdown文件: {args.input}")
             generator.process_markdown_file(args.input)
+        elif args.input.endswith('.json'):
+            print(f"📝 处理JSON文件: {args.input}")
+            generator.process_json_file(args.input)
         else:
             # 从文件内容中提取URL
             urls = extract_urls_from_text(content)
