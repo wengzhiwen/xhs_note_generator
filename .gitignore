@@ -39,6 +39,8 @@ urls.txt
 *.mp3
 *.mp4
 *.wav
+temp_notes/
+cookies/
 
 # OS specific
 .DS_Store
