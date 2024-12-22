@@ -30,6 +30,7 @@ required_env_vars = {
     'OPENROUTER_API_URL': '用于OpenRouter API',
     'OPENROUTER_APP_NAME': '用于OpenRouter API',
     'OPENROUTER_HTTP_REFERER': '用于OpenRouter API',
+    'OPENROUTER_MODLE': '用于OpenRouter API',
     'UNSPLASH_ACCESS_KEY': '用于图片搜索',
     'UNSPLASH_SECRET_KEY': '用于Unsplash认证'
 }
@@ -63,6 +64,12 @@ openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
 openrouter_app_name = os.getenv('OPENROUTER_APP_NAME', 'video_note_generator')
 openrouter_http_referer = os.getenv('OPENROUTER_HTTP_REFERER', 'https://github.com')
 openrouter_available = False
+openrouter_max_tokens = os.getenv('MAX_TOKENS', 4000)
+try:
+    openrouter_temperature = float(os.getenv('TEMPERATURE', 0.7))
+except ValueError:
+    print("⚠️ TEMPERATURE 环境变量配置不正确，使用默认值 0.7")
+    openrouter_temperature = 0.7
 
 # 配置 OpenAI API
 client = openai.OpenAI(
@@ -75,12 +82,12 @@ client = openai.OpenAI(
 )
 
 # 选择要使用的模型
-AI_MODEL = "google/gemini-pro"  # 使用 Gemini Pro 模型
+AI_MODEL = os.getenv("OPENROUTER_MODLE", "google/gemini-pro")
 
 # Test OpenRouter connection
 if openrouter_api_key:
     try:
-        print(f"正在测试 OpenRouter API 连接...")
+        print(f"正在测试 OpenRouter API {AI_MODEL} 连接...")
         
         # 测试API连接
         response = client.chat.completions.create(
@@ -89,10 +96,11 @@ if openrouter_api_key:
                 {"role": "system", "content": "这是一个链接测试的一部分，你只需要正常表现让我们知道你很好就可以了"},
                 {"role": "user", "content": "请问你是谁"}
             ],
-            temperature=0.3,
-            max_tokens=50
+            temperature=openrouter_temperature,
+            max_tokens=100 # 只是测试链接性，限制最大输出长度
         )
         if not response.choices:
+            print(response)
             raise Exception("API 连接测试失败")
 
         print(f"✅ OpenRouter API 连接测试成功")
@@ -478,8 +486,8 @@ Markdown格式要求：
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": final_prompt}
                 ],
-                temperature=0.7,
-                max_tokens=4000
+                temperature=openrouter_temperature,
+                max_tokens=openrouter_max_tokens
             )
             
             if response.choices:
@@ -691,8 +699,8 @@ Markdown格式要求：
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.7,
-                max_tokens=2000
+                temperature=openrouter_temperature,
+                max_tokens=openrouter_max_tokens
             )
             
             if not response.choices:
@@ -769,8 +777,8 @@ Markdown格式要求：
                             {"role": "system", "content": "你是一个翻译助手。请将输入的中文关键词翻译成最相关的1-3个英文关键词，用逗号分隔。直接返回翻译结果，不要加任何解释。例如：\n输入：'保险理财知识'\n输出：insurance,finance,investment"},
                             {"role": "user", "content": query}
                         ],
-                        temperature=0.3,
-                        max_tokens=50
+                        temperature=0.3, # 翻译场景下使用特殊的设定
+                        max_tokens=50 # 翻译场景下使用特殊的设定
                     )
                     if response.choices:
                         query = response.choices[0].message.content.strip()
